@@ -1,5 +1,7 @@
 # React 19와 이전 버전의 데이터 페칭 비교
 
+![Image](https://github.com/user-attachments/assets/37f3e456-f2ee-4d9b-a276-cf7cd31e415d)
+
 ## 1. 데이터 페칭의 기본 요구사항
 
 웹 애플리케이션에서 데이터 페칭 시 필요한 핵심 기능들:
