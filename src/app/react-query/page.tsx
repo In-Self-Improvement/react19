@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import Image from "next/image";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 interface Pokemon {
   name: string;
@@ -13,10 +13,20 @@ interface Pokemon {
       name: string;
     };
   }[];
+  isFavorite: boolean;
+  nickname?: string;
+  id: number;
 }
+
+// context 타입 정의
+type MutationContext = {
+  previousPokemon: Pokemon | undefined;
+};
 
 export default function ReactQueryPage() {
   const [isPolling, setIsPolling] = useState(false);
+  const [shouldFail, setShouldFail] = useState(false);
+  const queryClient = useQueryClient();
 
   const {
     data: pokemon,
@@ -25,6 +35,7 @@ export default function ReactQueryPage() {
     isError,
     failureCount,
     refetch,
+    isFetching,
   } = useQuery<Pokemon, Error>({
     queryKey: ["pokemon"],
     queryFn: async () => {
@@ -33,13 +44,76 @@ export default function ReactQueryPage() {
         `https://pokeapi.co/api/v2/pokemon/${randomId}`,
         { cache: "no-store" }
       );
+      if (shouldFail) throw new Error("Failed to fetch data");
       if (!response.ok) throw new Error("Failed to fetch data");
       return response.json();
     },
     retry: 3,
     retryDelay: 1000,
     refetchInterval: isPolling ? 5000 : false,
+    staleTime: 10000,
+    gcTime: 5 * 60 * 1000,
     placeholderData: (previousData) => previousData,
+  });
+
+  const favoriteMutation = useMutation({
+    mutationFn: async ({ isFavorite }: { isFavorite: boolean }) => {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      if (shouldFail) {
+        throw new Error("서버 에러가 발생했습니다!");
+      }
+
+      return { isFavorite };
+    },
+    onMutate: async ({ isFavorite }): Promise<MutationContext> => {
+      await queryClient.cancelQueries({ queryKey: ["pokemon"] });
+      const previousPokemon = queryClient.getQueryData<Pokemon>(["pokemon"]);
+
+      queryClient.setQueryData<Pokemon>(["pokemon"], (old) => ({
+        ...old!,
+        isFavorite,
+      }));
+
+      return { previousPokemon };
+    },
+    onError: (
+      err: Error,
+      variables: { id: number; isFavorite: boolean },
+      context?: MutationContext
+    ) => {
+      if (context?.previousPokemon) {
+        queryClient.setQueryData(["pokemon"], context.previousPokemon);
+      }
+      alert("즐겨찾기 처리에 실패했습니다!");
+    },
+  });
+
+  const nicknameMutation = useMutation({
+    mutationFn: async (nickname: string) => {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      if (shouldFail) {
+        throw new Error("서버 에러가 발생했습니다!");
+      }
+
+      return { nickname };
+    },
+    onMutate: async (nickname) => {
+      await queryClient.cancelQueries({ queryKey: ["pokemon"] });
+      const previousPokemon = queryClient.getQueryData<Pokemon>(["pokemon"]);
+
+      queryClient.setQueryData<Pokemon>(["pokemon"], (old) => ({
+        ...old!,
+        nickname,
+      }));
+
+      return { previousPokemon };
+    },
+    onError: (err, variables, context) => {
+      queryClient.setQueryData(["pokemon"], context?.previousPokemon);
+      alert("닉네임 설정에 실패했습니다!");
+    },
   });
 
   return (
@@ -57,7 +131,7 @@ export default function ReactQueryPage() {
           disabled={isLoading}
           className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded disabled:bg-gray-600"
         >
-          {isLoading ? "로딩중..." : "랜덤 포켓몬 가져오기"}
+          {isFetching ? "로딩중..." : "랜덤 포켓몬 가져오기"}
         </button>
         <button
           onClick={() => setIsPolling(!isPolling)}
@@ -69,6 +143,46 @@ export default function ReactQueryPage() {
         >
           {isPolling ? "자동 갱신 중지" : "5초마다 자동 갱신 시작"}
         </button>
+        <button
+          onClick={() => setShouldFail(!shouldFail)}
+          className={`${
+            shouldFail
+              ? "bg-red-500 hover:bg-red-600"
+              : "bg-yellow-500 hover:bg-yellow-600"
+          } text-white px-4 py-2 rounded`}
+        >
+          {shouldFail ? "에러 모드 ON" : "에러 모드 OFF"}
+        </button>
+        {pokemon && (
+          <>
+            <button
+              onClick={() =>
+                favoriteMutation.mutate({
+                  id: pokemon.id,
+                  isFavorite: !pokemon.isFavorite,
+                })
+              }
+              className={`p-2 rounded ${
+                pokemon.isFavorite
+                  ? "bg-yellow-500 hover:bg-yellow-600"
+                  : "bg-gray-600 hover:bg-gray-700"
+              }`}
+              disabled={favoriteMutation.isPending}
+            >
+              ⭐
+            </button>
+            <button
+              onClick={() => {
+                const nickname = prompt("새로운 닉네임을 입력하세요:");
+                if (nickname) nicknameMutation.mutate(nickname);
+              }}
+              className="bg-blue-500 hover:bg-blue-600 px-4 py-2 rounded"
+              disabled={nicknameMutation.isPending}
+            >
+              닉네임 설정
+            </button>
+          </>
+        )}
       </div>
 
       {failureCount > 0 && failureCount < 4 && (
@@ -77,7 +191,44 @@ export default function ReactQueryPage() {
 
       {pokemon && (
         <div className="mt-4 p-4 border border-gray-700 rounded-lg bg-gray-800">
-          <h2 className="text-xl capitalize mb-2">{pokemon.name}</h2>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl capitalize">
+              {pokemon.nickname || pokemon.name}
+              {(nicknameMutation.isPending || favoriteMutation.isPending) && (
+                <span className="text-yellow-400 text-sm ml-2">
+                  (처리 중...)
+                </span>
+              )}
+            </h2>
+            <div className="flex gap-2">
+              <button
+                onClick={() =>
+                  favoriteMutation.mutate({
+                    id: pokemon.id,
+                    isFavorite: !pokemon.isFavorite,
+                  })
+                }
+                className={`p-2 rounded ${
+                  pokemon.isFavorite
+                    ? "bg-yellow-500 hover:bg-yellow-600"
+                    : "bg-gray-600 hover:bg-gray-700"
+                }`}
+                disabled={favoriteMutation.isPending}
+              >
+                ⭐
+              </button>
+              <button
+                onClick={() => {
+                  const nickname = prompt("새로운 닉네임을 입력하세요:");
+                  if (nickname) nicknameMutation.mutate(nickname);
+                }}
+                className="bg-blue-500 hover:bg-blue-600 px-4 py-2 rounded"
+                disabled={nicknameMutation.isPending}
+              >
+                닉네임 설정
+              </button>
+            </div>
+          </div>
           <Image
             src={pokemon.sprites.front_default}
             alt={pokemon.name}
