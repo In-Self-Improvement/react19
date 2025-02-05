@@ -11,6 +11,9 @@ export default function Home() {
         <Link href="/react-before-19" className="text-blue-500 hover:underline">
           기존 React 방식
         </Link>
+        <Link href="/react-query" className="text-blue-500 hover:underline">
+          React Query 예제
+        </Link>
       </div>
     </main>
   );
