@@ -14,6 +14,12 @@ export default function Home() {
         <Link href="/react-query" className="text-blue-500 hover:underline">
           React Query 예제
         </Link>
+        <Link
+          href="/react19-advanced"
+          className="text-blue-500 hover:underline"
+        >
+          React 19 고급 예제
+        </Link>
       </div>
     </main>
   );
